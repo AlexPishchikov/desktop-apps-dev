@@ -2,9 +2,8 @@ package sample
 
 import javafx.animation.FadeTransition
 import javafx.animation.TranslateTransition
-import javafx.application.Application
 import javafx.concurrent.Task
-import javafx.event.EventHandler
+import javafx.fxml.FXML
 import javafx.geometry.Insets
 import javafx.scene.Scene
 import javafx.scene.control.Button
@@ -13,6 +12,7 @@ import javafx.scene.control.Label
 import javafx.scene.control.TextArea
 import javafx.scene.image.Image
 import javafx.scene.input.MouseEvent
+import javafx.scene.layout.BorderPane
 import javafx.scene.layout.HBox
 import javafx.scene.layout.VBox
 import javafx.scene.media.Media
@@ -26,6 +26,19 @@ import javafx.stage.Stage
 import javafx.stage.StageStyle
 import javafx.util.Duration
 import java.io.File
+import java.util.*
+import kotlin.math.absoluteValue
+import kotlin.math.ln
+import kotlin.math.sign
+import kotlin.random.Random
+
+class Controller {
+    @FXML
+    lateinit var image_box : HBox
+    lateinit var buttons_box : HBox
+    lateinit var input_box : HBox
+    lateinit var text_box : HBox
+}
 
 var primaryConfig = Config()
 
@@ -42,13 +55,14 @@ class Config {
     var textColor = "#FFFFFF"
 
     var bgColor = "#000000"
-    var bgOpacity = 0.9
-
+    var bgOpacity = 0.6
     var waitTime = 5000
 
     var signalPath : String = "Harp.wav"
 
     var mode : Notify.Modes = Notify.Modes.DEFAULT
+
+    var pulse = false
 
     var okButton : Button? = null
     var cancelButton : Button? = null
@@ -58,16 +72,16 @@ class Config {
     var isPressed : Boolean = false
     var dropdownOptions : Array<String> = arrayOf()
 
-    var onClickOk = {
+    var onClickOk : () -> Unit = {
         if (!isPressed) {
             // println("you pressed ok") // OK_CANCEL
-            // println(inputField!!.text) // INPUT
-            println(dropdown!!.value) // DROPDOWN
+            //println(inputField!!.text) // INPUT
+            //println(dropdown!!.value) // DROPDOWN
         }
         isPressed = true
     }
 
-    var onClickCancel = {
+    var onClickCancel : () -> Unit = {
         if (!isPressed) {
             println("you pressed cancel")
         }
@@ -76,8 +90,10 @@ class Config {
 
 }
 
-class Notify: Application() {
+class Notify {
+    var controller = Controller()
     var content = HBox()
+    var pane = BorderPane()
 
     enum class Modes {
         DEFAULT,
@@ -105,12 +121,17 @@ class Notify: Application() {
 
     var popup = Stage()
 
-    override fun start(primaryStage: Stage?) {
+    lateinit var pulseWindow : Stage
+
+    fun start(primaryStage: Stage?) {
+        //popup.scene = Scene(load<Parent>(Notify.javaClass.getResource("Notify.fxml")))
         buildDefault()
 
         var screenRect = Screen.getPrimary().bounds
 
-        var shift = 10.0
+        var shift = 80.0
+
+        var panelHeight = 40.0
 
         when (config.pos) {
             Position.LEFT_BOTTOM -> {
@@ -123,7 +144,7 @@ class Notify: Application() {
             }
             Position.RIGHT_BOTTOM -> {
                 popup.x = screenRect.width - defWidth - shift
-                popup.y = screenRect.height - defHeight - shift
+                popup.y = screenRect.height - defHeight - shift - panelHeight
             }
             Position.RIGHT_TOP -> {
                 popup.x = screenRect.width - defWidth - shift
@@ -142,8 +163,10 @@ class Notify: Application() {
                 catch (e: Exception) {
                     println(e)
                 }
-                Thread.sleep(config.waitTime.toLong())
-                closeAnim()
+                if (primaryConfig.mode == Modes.DEFAULT) {
+                    Thread.sleep(config.waitTime.toLong())
+                    closeAnim()
+                }
                 return null
             }
         }
@@ -152,38 +175,87 @@ class Notify: Application() {
         popup.addEventFilter(MouseEvent.MOUSE_PRESSED) {
             if (config.mode == Modes.DEFAULT || config.isPressed) closeAnim()
         }
-
         popup.scene = Scene(content)
-        popup.initOwner(primaryStage)
-        popup.initStyle(StageStyle.TRANSPARENT)
-        popup.opacity = config.bgOpacity
-        popup.show()
 
+        popup.initOwner(primaryStage)
+        popup.initStyle(StageStyle.UNDECORATED)
+
+        popup.opacity = if (config.pulse) {1.0} else config.bgOpacity
+        popup.isAlwaysOnTop = true
         openAnim()
     }
 
     fun openAnim() {
         val ft = FadeTransition(Duration.millis(1500.0), content)
         ft.fromValue = 0.0
-        ft.toValue = config.bgOpacity
+        ft.toValue = if (config.pulse) {1.0} else config.bgOpacity
         ft.cycleCount = 1
-        val tt = TranslateTransition(Duration.millis(1400.0), content)
-        tt.byX = -600.0
-        tt.fromX = 600.0
+
+        val tt = TranslateTransition(Duration.millis(1000.0), content)
+        tt.byX = if (config.pos == Position.RIGHT_BOTTOM || config.pos == Position.RIGHT_TOP) -600.0 else 600.0
+        tt.fromX = if (config.pos == Position.RIGHT_BOTTOM || config.pos == Position.RIGHT_TOP) 600.0 else -600.0
         tt.play()
         ft.play()
+
+        fun inc(i :  Int) : Int {
+            var k = i
+            if (k >= 15)
+                k = -1
+            if (k <= -15)
+                k = 1
+            if (k > 0) k++
+            if (k < 0) k--
+            return k
+        }
+
+        if (config.pulse) {
+            pulseWindow = Stage()
+            var emptyHBox = HBox()
+            emptyHBox.setPrefSize(defWidth + 20, defHeight + 20)
+            pulseWindow.scene = Scene(emptyHBox)
+            pulseWindow.initOwner(popup)
+            pulseWindow.initStyle(StageStyle.UNDECORATED)
+
+            pulseWindow.x = popup.x
+            pulseWindow.y = popup.y
+            emptyHBox.style = "-fx-background-color:" + config.bgColor
+            popup.isAlwaysOnTop = false
+            pulseWindow.show()
+            popup.show()
+
+            val animTimer = Timer()
+            animTimer.scheduleAtFixedRate(object : TimerTask() {
+                var i = -2
+                override fun run() {
+                    if (i.absoluteValue < 15) {
+                        pulseWindow.x += (i.toDouble() / (ln(i.absoluteValue.toDouble()) * ln(i.absoluteValue.toDouble()))).toInt()
+                        pulseWindow.y += (i.toDouble() / (ln(i.absoluteValue.toDouble()) * ln(i.absoluteValue.toDouble()))).toInt()
+                        pulseWindow.width -= (i.toDouble() / (ln(i.absoluteValue.toDouble()) * ln(i.absoluteValue.toDouble()))).toInt()
+                        pulseWindow.height -= (i.toDouble() / (ln(i.absoluteValue.toDouble()) * ln(i.absoluteValue.toDouble()))).toInt()
+                        pulseWindow.width -= (i.toDouble() / (ln(i.absoluteValue.toDouble()) * ln(i.absoluteValue.toDouble()))).toInt()
+                        pulseWindow.height -= (i.toDouble() / (ln(i.absoluteValue.toDouble()) * ln(i.absoluteValue.toDouble()))).toInt()
+                        Thread.sleep((1 / i.absoluteValue * 35).toLong())
+                    }
+                    i = inc(i)
+                }
+            }, 100, 30)
+        }
+        else
+            popup.show()
     }
 
     fun closeAnim() {
-        val ft = FadeTransition(Duration.millis(1500.0), content)
+        val ft = FadeTransition(Duration.millis(1000.0), content)
         ft.fromValue = config.bgOpacity
         ft.toValue = 0.0
         ft.cycleCount = 1
-        val tt = TranslateTransition(Duration.millis(1400.0), content)
-        tt.byX = 600.0
-        tt.fromX = -0.0
+        val tt = TranslateTransition(Duration.millis(1000.0), content)
+        tt.byX = if (config.pos == Position.RIGHT_BOTTOM || config.pos == Position.RIGHT_TOP) 600.0 else -600.0
+        tt.fromX = 0.0
         ft.setOnFinished {
             println("close")
+            if(config.pulse)
+                pulseWindow.close()
             popup.close()
         }
         tt.play()
@@ -212,20 +284,23 @@ class Notify: Application() {
         }
 
 
-        var msgLayout = VBox()
+        var msgLayout = BorderPane()
 
-        var title = Label(config.title)
+        var title = Label(config.title + "\n")
         title.font = Font(24.0)
         title.style = "-fx-font-weight: bold; -fx-text-fill:" + config.textColor
 
-        var message = Label(config.msg)
+        var message = Label("\n" + config.msg)
         message.font = Font(20.0)
         message.style = "-fx-text-fill:" + config.textColor
+        message.maxHeight = 200.0
+        message.maxWidth = 400.0
+        message.isWrapText = true
 
-        var app = Label(config.appName)
+        var app = Label(config.appName + "\n" + "\n")
         app.font = Font(16.0)
         app.style = "-fx-text-fill:" + config.textColor
-
+        app.isWrapText = true
 
         val a = when (config.mode) {
             Modes.OK_CANCEL -> buildButtons()
@@ -233,12 +308,20 @@ class Notify: Application() {
             Modes.DROPDOWN -> buildDropdown()
             else -> null
         }
-        msgLayout.children.addAll(title, message, app)
-        if (a != null) {
-            msgLayout.children.add(a)
-        }
-        content.children.add(msgLayout)
 
+        msgLayout.top = title
+        msgLayout.center = message
+
+        var bottomContent = BorderPane()
+        bottomContent.top = app
+
+        pane.top = msgLayout
+        if (a != null) {
+            bottomContent.bottom = a
+            pane.bottom = bottomContent
+        }
+
+        content.children.add(pane)
     }
 
     fun buildButtons() : HBox {
@@ -249,45 +332,52 @@ class Notify: Application() {
             config.cancelButton = Button()
         }
 
-        config.okButton!!.text = if (config.okButton!!.text == "") {"Ok"} else { config.okButton!!.text }
+        config.okButton!!.text = if (config.okButton!!.text == "") { "Ok" } else { config.okButton!!.text }
         config.okButton!!.setOnAction { config.onClickOk() }
 
-        config.cancelButton!!.text = if (config.cancelButton!!.text == "") {"Cancel"} else { config.cancelButton!!.text }
+        config.cancelButton!!.text = if (config.cancelButton!!.text == "") { "Cancel" } else { config.cancelButton!!.text }
         config.cancelButton!!.setOnAction { config.onClickCancel() }
 
-        hbox.children.addAll(config.okButton, config.cancelButton)
+        hbox.style = "-fx-alignment: bottom-center;"
         hbox.spacing = 10.0
+        hbox.children.addAll(config.okButton, config.cancelButton)
+
         return hbox
     }
 
-    fun buildInput() : HBox {
-        var hbox : HBox = buildButtons()
+    fun buildInput() : VBox {
+        var vbox : VBox = VBox()
+        vbox.spacing = 10.0
         if (config.inputField == null)
             config.inputField = TextArea()
+        vbox.style = "-fx-alignment: bottom-center;"
+        config.inputField!!.maxHeight = 10.0
 
-        hbox.children.add(config.inputField)
-
-        return hbox
+        vbox.children.addAll(config.inputField, buildButtons())
+        return vbox
     }
 
-    fun buildDropdown() : HBox {
-        var hbox : HBox = buildButtons()
+    fun buildDropdown() : VBox {
+        var vbox : VBox = VBox()
+        vbox.spacing = 10.0
 
         if (config.dropdown == null)
             config.dropdown = ComboBox()
 
         config.dropdown!!.items.addAll(config.dropdownOptions)
 
-        hbox.children.add(config.dropdown)
+        vbox.style = "-fx-alignment: bottom-center;"
 
-        return hbox
+        vbox.children.addAll(config.dropdown, buildButtons())
+        return vbox
     }
 
     companion object {
         @JvmStatic
-        fun main(someConfig : Config = Config()) {
+        fun main(primaryStage: Stage?, someConfig : Config = Config()) {
             primaryConfig = someConfig
-            launch(Notify::class.java)
+            var a = Notify()
+            a.start(primaryStage)
         }
     }
 }
